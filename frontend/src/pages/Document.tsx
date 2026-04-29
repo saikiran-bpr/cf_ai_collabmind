@@ -4,6 +4,7 @@ import type { Editor as TipTapEditor } from "@tiptap/react";
 import { Editor } from "../components/Editor";
 import { Toolbar } from "../components/Toolbar";
 import { PresenceBar } from "../components/PresenceBar";
+import { StatusBar } from "../components/StatusBar";
 import { AISuggestion } from "../components/AISuggestion";
 import { AIChatPanel } from "../components/AIChatPanel";
 import { SignInPanel } from "../components/SignInPanel";
@@ -83,22 +84,23 @@ export function Document() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="h-screen flex flex-col bg-[#0f0f0f] overflow-hidden">
       <PresenceBar
         users={users}
         localUserId={session.userId}
         currentUser={session}
+        ydoc={ydoc}
         onSignOut={signOut}
       />
 
+      <Toolbar
+        editor={editor}
+        onToggleChat={() => setChatOpen(!chatOpen)}
+        chatOpen={chatOpen}
+      />
+
       <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 flex flex-col p-4 overflow-y-auto">
-          <Toolbar
-            editor={editor}
-            connected={connected}
-            onToggleChat={() => setChatOpen(!chatOpen)}
-            chatOpen={chatOpen}
-          />
+        <div className="flex-1 flex flex-col overflow-hidden relative">
           <Editor
             ydoc={ydoc}
             provider={provider}
@@ -109,11 +111,15 @@ export function Document() {
             onDismissSuggestion={dismissSuggestion}
             hasSuggestion={!!suggestion}
           />
-          <AISuggestion suggestion={suggestion} />
+          {suggestion && (
+            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 max-w-3xl w-full px-8">
+              <AISuggestion suggestion={suggestion} />
+            </div>
+          )}
         </div>
 
         {chatOpen && (
-          <div className="w-80 shrink-0 h-[calc(100vh-65px)]">
+          <div className="w-80 shrink-0 border-l border-border">
             <AIChatPanel
               messages={chatMessages}
               onSend={sendChatMessage}
@@ -123,6 +129,14 @@ export function Document() {
           </div>
         )}
       </div>
+
+      <StatusBar
+        editor={editor}
+        provider={provider}
+        connected={connected}
+        onlineCount={users.length}
+        docId={docId}
+      />
     </div>
   );
 }
