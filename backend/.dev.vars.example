@@ -1,0 +1,12 @@
+# Copy this file to `.dev.vars` and fill in your credentials.
+# Wrangler auto-loads .dev.vars in local dev.
+# These values are NEVER committed (gitignored as `.dev.vars`).
+#
+# Get these from: https://console.cloud.google.com/apis/credentials
+# 1. Create a new OAuth 2.0 Client ID (Web application)
+# 2. Add authorized redirect URI: http://localhost:8787/auth/google/callback
+# 3. Add authorized JavaScript origin: http://localhost:5173
+# 4. Copy the Client ID and Client Secret here.
+
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-client-secret

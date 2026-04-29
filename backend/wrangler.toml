@@ -1,0 +1,27 @@
+name = "collabmind-backend"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[ai]
+binding = "AI"
+# To use AI Gateway, uncomment and set your gateway ID:
+# gateway = { id = "collabmind-gateway" }
+
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = "7246bca045eb46258558660eb9efc02a"
+# For local dev, wrangler will create a local KV store automatically.
+# Replace the id above after running: wrangler kv:namespace create SESSIONS
+
+[durable_objects]
+bindings = [
+  { name = "DOCUMENT_AGENT", class_name = "DocumentAgent" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["DocumentAgent"]
+
+[vars]
+ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:5174,https://collabmind.pages.dev"
