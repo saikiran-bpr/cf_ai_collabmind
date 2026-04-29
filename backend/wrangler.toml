@@ -24,4 +24,4 @@ tag = "v1"
 new_sqlite_classes = ["DocumentAgent"]
 
 [vars]
-ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:5174,https://collabmind.pages.dev"
+ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:5174,https://cf-ai-collabmind.pages.dev"
