@@ -5,6 +5,7 @@ export interface Env {
   ALLOWED_ORIGINS: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+  BACKEND_URL?: string;
 }
 
 export interface SessionData {

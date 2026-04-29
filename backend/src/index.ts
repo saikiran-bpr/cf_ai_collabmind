@@ -136,7 +136,7 @@ export default {
 
         const googleUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
         googleUrl.searchParams.set("client_id", env.GOOGLE_CLIENT_ID);
-        googleUrl.searchParams.set("redirect_uri", `${origin}/auth/google/callback`);
+        googleUrl.searchParams.set("redirect_uri", `${env.BACKEND_URL ?? origin}/auth/google/callback`);
         googleUrl.searchParams.set("response_type", "code");
         googleUrl.searchParams.set("scope", "openid email profile");
         googleUrl.searchParams.set("state", state);
@@ -183,7 +183,7 @@ export default {
             code,
             client_id: env.GOOGLE_CLIENT_ID,
             client_secret: env.GOOGLE_CLIENT_SECRET,
-            redirect_uri: `${origin}/auth/google/callback`,
+            redirect_uri: `${env.BACKEND_URL ?? origin}/auth/google/callback`,
             grant_type: "authorization_code",
           }),
         });
@@ -362,31 +362,243 @@ export default {
         return stub.fetch(request);
       }
 
+      // ── AI chat-driven edit (apply chat instruction to document) ──
+      if (path === "/ai-chat-edit" && request.method === "POST") {
+        const body = (await request.json()) as {
+          instruction: string;
+          documentContent: string;
+          conversationHistory: Array<{ role: "user" | "assistant"; content: string }>;
+        };
+
+        const systemPrompt =
+          "You are an AI editor working on the user's collaborative document. " +
+          "The user will give you an instruction (e.g. 'add a section about X', " +
+          "'remove the third paragraph', 'rewrite this as a formal email', " +
+          "'insert bullet points listing the key benefits'). " +
+          "Apply the instruction to the document and return the FULL UPDATED document as Markdown.\n\n" +
+          "Format your output as Markdown:\n" +
+          "- Use ## for section headings, ### for subsections.\n" +
+          "- Use **bold** and *italic* for emphasis.\n" +
+          "- Use - for bullet lists, 1. for numbered lists.\n" +
+          "- Separate paragraphs with blank lines.\n\n" +
+          "CRITICAL RULES:\n" +
+          "1. Return the ENTIRE document with the changes applied — not just the diff or changed parts.\n" +
+          "2. Preserve content the user did not ask you to change.\n" +
+          "3. Output ONLY the markdown — no preamble, no commentary, no code fences around the whole response.";
+
+        const messages = [
+          { role: "system" as const, content: systemPrompt },
+          {
+            role: "system" as const,
+            content:
+              "Current document content (plain text):\n\n" +
+              (body.documentContent ?? "").slice(0, 5000),
+          },
+          ...body.conversationHistory.slice(-6).map((m) => ({
+            role: m.role,
+            content: m.content,
+          })),
+          { role: "user" as const, content: body.instruction },
+        ];
+
+        try {
+          const response = await env.AI.run("@cf/meta/llama-3.1-8b-instruct", {
+            messages,
+            max_tokens: 2048,
+          });
+
+          let text =
+            typeof response === "object" &&
+            response !== null &&
+            "response" in (response as Record<string, unknown>)
+              ? ((response as Record<string, unknown>).response as string)
+              : String(response);
+
+          text = text.trim();
+          if (text.startsWith("```")) {
+            text = text.replace(/^```[a-z]*\n?/i, "").replace(/```\s*$/, "").trim();
+          }
+
+          return jsonResponse({ markdown: text });
+        } catch (err) {
+          return jsonResponse(
+            { error: err instanceof Error ? err.message : "AI failed" },
+            500
+          );
+        }
+      }
+
+      // ── AI document-wide action (polish/structure/etc) ──
+      if (path === "/ai-document" && request.method === "POST") {
+        const body = (await request.json()) as {
+          action: string;
+          text: string;
+        };
+
+        const sharedRules =
+          "Format your response in Markdown:\n" +
+          "- Use `## ` for section headings, `### ` for subsections.\n" +
+          "- Use `**bold**` for emphasis and `*italic*` for italics.\n" +
+          "- Use `- ` for bullet lists and `1.` for numbered lists.\n" +
+          "- Use `> ` for blockquotes and triple-backticks for code blocks.\n" +
+          "- Separate paragraphs with blank lines.\n" +
+          "Return ONLY the Markdown content — no preamble, no code fences around the whole response, no commentary.";
+
+        const prompts: Record<string, string> = {
+          polish:
+            "Rephrase the following document for improved clarity, flow, and professional tone. " +
+            "Preserve all key information and the original voice. " +
+            "Add appropriate headings and structure where helpful. " +
+            sharedRules,
+          structure:
+            "Add structure to the following text by inserting clear headings, organizing into logical sections, " +
+            "and using lists where they fit naturally. Preserve all content. " +
+            sharedRules,
+          professional:
+            "Rewrite the following document in a polished professional tone suitable for business or technical writing. " +
+            "Use proper headings, paragraphs, and formatting. " +
+            sharedRules,
+          concise:
+            "Rewrite the following document to be significantly more concise while preserving all essential information. " +
+            sharedRules,
+          expand:
+            "Expand the following document with more detail, examples, and supporting context. Keep the same tone. " +
+            sharedRules,
+          summarize:
+            "Summarize the following document in 2-4 paragraphs capturing the key points. " +
+            sharedRules,
+        };
+
+        const system = prompts[body.action];
+        if (!system) {
+          return jsonResponse({ error: "Unknown action" }, 400);
+        }
+
+        try {
+          const response = await env.AI.run("@cf/meta/llama-3.1-8b-instruct", {
+            messages: [
+              { role: "system", content: system },
+              { role: "user", content: body.text.slice(0, 6000) },
+            ],
+            max_tokens: 2048,
+          });
+
+          let text =
+            typeof response === "object" &&
+            response !== null &&
+            "response" in (response as Record<string, unknown>)
+              ? ((response as Record<string, unknown>).response as string)
+              : String(response);
+
+          text = text.trim();
+          if (text.startsWith("```html")) text = text.slice(7).trim();
+          else if (text.startsWith("```")) text = text.slice(3).trim();
+          if (text.endsWith("```")) text = text.slice(0, -3).trim();
+
+          return jsonResponse({ text });
+        } catch (err) {
+          return jsonResponse(
+            { error: err instanceof Error ? err.message : "AI failed" },
+            500
+          );
+        }
+      }
+
+      // ── AI action (transform selection) ──
+      if (path === "/ai-action" && request.method === "POST") {
+        const body = (await request.json()) as {
+          action: string;
+          text: string;
+        };
+
+        const prompts: Record<string, string> = {
+          improve:
+            "Rewrite the following text to be clearer, more polished, and more engaging. Keep the same meaning, length, and tone. Return ONLY the rewritten text — no preamble.",
+          shorten:
+            "Rewrite the following text to be significantly shorter while keeping its core meaning. Return ONLY the shortened text — no preamble.",
+          expand:
+            "Expand the following text with more detail, examples, or supporting context. Keep the same tone and style. Return ONLY the expanded text — no preamble.",
+          grammar:
+            "Fix any grammar, spelling, and punctuation errors in the following text. Make the smallest changes needed. Return ONLY the corrected text — no preamble.",
+          formal:
+            "Rewrite the following text in a more formal, professional tone. Keep the same meaning and length. Return ONLY the rewritten text — no preamble.",
+          casual:
+            "Rewrite the following text in a more casual, conversational tone. Keep the same meaning and length. Return ONLY the rewritten text — no preamble.",
+          summarize:
+            "Summarize the following text in 1-2 sentences. Return ONLY the summary — no preamble.",
+        };
+
+        const system = prompts[body.action];
+        if (!system) {
+          return jsonResponse({ error: "Unknown action" }, 400);
+        }
+
+        try {
+          const response = await env.AI.run("@cf/meta/llama-3.1-8b-instruct", {
+            messages: [
+              { role: "system", content: system },
+              { role: "user", content: body.text.slice(0, 2000) },
+            ],
+          });
+
+          const text =
+            typeof response === "object" &&
+            response !== null &&
+            "response" in (response as Record<string, unknown>)
+              ? ((response as Record<string, unknown>).response as string)
+              : String(response);
+
+          return jsonResponse({ text: (text ?? "").trim() });
+        } catch (err) {
+          return jsonResponse(
+            { error: err instanceof Error ? err.message : "AI failed" },
+            500
+          );
+        }
+      }
+
       // ── AI suggestion ──
       if (path === "/ai-suggest" && request.method === "POST") {
         const body = (await request.json()) as {
           context: string;
           paragraphContext: string;
           requestId: string;
+          exclude?: string;
         };
 
         try {
+          const messages: Array<{ role: "system" | "user"; content: string }> = [
+            {
+              role: "system",
+              content:
+                "You are an inline writing assistant embedded in a collaborative document editor. " +
+                "Your job is to suggest the next sentence only. " +
+                "Rules: " +
+                "1. Return ONLY the continuation text — no preamble, no explanation. " +
+                "2. Maximum 1 sentence (end with a period). " +
+                "3. Match the exact writing style, tone, and vocabulary of the input. " +
+                "4. If the text is formal, stay formal. If casual, stay casual. " +
+                "5. Never start with 'I' or repeat the last word of the input.",
+            },
+          ];
+
+          if (body.exclude) {
+            messages.push({
+              role: "system",
+              content:
+                "You previously suggested: \"" +
+                body.exclude +
+                "\". The user did not want that. Provide a meaningfully DIFFERENT alternative — different angle, different opening, different idea.",
+            });
+          }
+
+          messages.push({
+            role: "user",
+            content: body.paragraphContext.slice(-500),
+          });
+
           const response = await env.AI.run("@cf/meta/llama-3.1-8b-instruct", {
-            messages: [
-              {
-                role: "system",
-                content:
-                  "You are an inline writing assistant embedded in a collaborative document editor. " +
-                  "Your job is to suggest the next sentence only. " +
-                  "Rules: " +
-                  "1. Return ONLY the continuation text — no preamble, no explanation. " +
-                  "2. Maximum 1 sentence (end with a period). " +
-                  "3. Match the exact writing style, tone, and vocabulary of the input. " +
-                  "4. If the text is formal, stay formal. If casual, stay casual. " +
-                  "5. Never start with 'I' or repeat the last word of the input.",
-              },
-              { role: "user", content: body.paragraphContext.slice(-500) },
-            ],
+            messages,
           });
 
           const text =

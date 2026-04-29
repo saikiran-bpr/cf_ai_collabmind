@@ -265,6 +265,105 @@ body {
   animation: fadeIn 0.25s ease forwards;
 }
 
+/* Markdown styling inside AI chat messages */
+.prose-chat p {
+  margin: 0.4em 0;
+}
+.prose-chat p:first-child {
+  margin-top: 0;
+}
+.prose-chat p:last-child {
+  margin-bottom: 0;
+}
+.prose-chat strong {
+  color: white;
+  font-weight: 600;
+}
+.prose-chat em {
+  color: #d1d5db;
+}
+.prose-chat code {
+  background: rgba(99, 102, 241, 0.18);
+  color: #c7d2fe;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  font-size: 0.88em;
+  font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+}
+.prose-chat pre {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  padding: 0.6em 0.8em;
+  margin: 0.5em 0;
+  overflow-x: auto;
+  font-size: 0.85em;
+}
+.prose-chat pre code {
+  background: transparent;
+  padding: 0;
+  color: #e5e7eb;
+}
+.prose-chat ul,
+.prose-chat ol {
+  margin: 0.4em 0;
+  padding-left: 1.4em;
+}
+.prose-chat ul {
+  list-style: disc;
+}
+.prose-chat ol {
+  list-style: decimal;
+}
+.prose-chat li {
+  margin: 0.2em 0;
+}
+.prose-chat h1,
+.prose-chat h2,
+.prose-chat h3 {
+  color: white;
+  font-weight: 600;
+  margin: 0.6em 0 0.3em;
+}
+.prose-chat h1 {
+  font-size: 1.05em;
+}
+.prose-chat h2 {
+  font-size: 1em;
+}
+.prose-chat h3 {
+  font-size: 0.95em;
+}
+.prose-chat a {
+  color: #818cf8;
+  text-decoration: underline;
+}
+.prose-chat blockquote {
+  border-left: 3px solid #6366f1;
+  padding-left: 0.7em;
+  margin: 0.4em 0;
+  color: #9ca3af;
+}
+
+.inline-ai-suggestion {
+  color: #9ca3af;
+  font-style: italic;
+  pointer-events: none;
+  user-select: none;
+  white-space: pre-wrap;
+  opacity: 0;
+  animation: fadeInInline 0.18s ease forwards;
+}
+
+@keyframes fadeInInline {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.85;
+  }
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;
