@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { BACKEND_URL } from "../lib/constants";
 import { useSession } from "../hooks/useSession";
 import { useMyDocs, type MyDoc } from "../hooks/useMyDocs";
-import { SignInPanel } from "../components/SignInPanel";
+import { Landing } from "../components/Landing";
 
 function timeAgo(ts: number): string {
   const seconds = Math.floor((Date.now() - ts) / 1000);
@@ -71,7 +71,7 @@ export function Home() {
 
   if (!session) {
     return (
-      <SignInPanel
+      <Landing
         googleEnabled={authConfig.google}
         onGoogleSignIn={signInWithGoogle}
         onGuestSignIn={createGuestSession}
