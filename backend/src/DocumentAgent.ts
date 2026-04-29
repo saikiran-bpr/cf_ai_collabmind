@@ -4,7 +4,7 @@ import * as syncProtocol from "y-protocols/sync";
 import * as awarenessProtocol from "y-protocols/awareness";
 import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
-import type { Env } from "./types";
+import type { Env, DocMeta } from "./types";
 
 const MESSAGE_SYNC = 0;
 const MESSAGE_AWARENESS = 1;
@@ -16,6 +16,9 @@ export class DocumentAgent extends DurableObject<Env> {
   private wsClientIds: Map<WebSocket, Set<number>>;
   private initialized: boolean;
   private pendingSave: boolean;
+  private docId: string | null;
+  private titleSyncTimer: ReturnType<typeof setTimeout> | null;
+  private lastSyncedTitle: string;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -25,6 +28,21 @@ export class DocumentAgent extends DurableObject<Env> {
     this.wsClientIds = new Map();
     this.initialized = false;
     this.pendingSave = false;
+    this.docId = null;
+    this.titleSyncTimer = null;
+    this.lastSyncedTitle = "";
+
+    const meta = this.ydoc.getMap("meta");
+    meta.observe(() => {
+      const title = (meta.get("title") as string) ?? "";
+      if (title === this.lastSyncedTitle) return;
+      if (this.titleSyncTimer) clearTimeout(this.titleSyncTimer);
+      this.titleSyncTimer = setTimeout(() => {
+        this.flushTitleToKV(title).catch((err) =>
+          console.error("Failed to sync title:", err)
+        );
+      }, 800);
+    });
 
     this.ydoc.on("update", (update: Uint8Array, origin: unknown) => {
       const encoder = encoding.createEncoder();
@@ -66,6 +84,22 @@ export class DocumentAgent extends DurableObject<Env> {
     );
   }
 
+  private async flushTitleToKV(title: string): Promise<void> {
+    if (!this.docId) return;
+    try {
+      const raw = await this.env.SESSIONS.get(`doc:${this.docId}`);
+      if (!raw) return;
+      const meta = JSON.parse(raw) as DocMeta;
+      const trimmed = title.trim() || "Untitled";
+      meta.title = trimmed;
+      meta.lastModified = Date.now();
+      await this.env.SESSIONS.put(`doc:${this.docId}`, JSON.stringify(meta));
+      this.lastSyncedTitle = title;
+    } catch (err) {
+      console.error("flushTitleToKV error:", err);
+    }
+  }
+
   private async ensureInitialized(): Promise<void> {
     if (this.initialized) return;
     this.initialized = true;
@@ -94,6 +128,11 @@ export class DocumentAgent extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     if (request.headers.get("Upgrade") !== "websocket") {
       return new Response("Expected WebSocket", { status: 426 });
+    }
+
+    const url = new URL(request.url);
+    if (!this.docId) {
+      this.docId = url.searchParams.get("docId") ?? null;
     }
 
     await this.ensureInitialized();

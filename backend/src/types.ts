@@ -17,6 +17,21 @@ export interface SessionData {
   createdAt: number;
 }
 
+export interface DocMeta {
+  docId: string;
+  title: string;
+  createdBy: string;
+  createdByName: string;
+  createdAt: number;
+  lastModified: number;
+}
+
+export interface UserDocEntry {
+  docId: string;
+  role: "owner" | "shared";
+  addedAt: number;
+}
+
 export interface AIChatRequest {
   message: string;
   documentContext: string;

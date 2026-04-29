@@ -4,6 +4,8 @@ import type {
   SessionData,
   GoogleTokenResponse,
   GoogleProfile,
+  DocMeta,
+  UserDocEntry,
 } from "./types";
 
 export { DocumentAgent } from "./DocumentAgent";
@@ -43,6 +45,32 @@ function isAllowedRedirect(url: string, allowedOrigins: string): boolean {
   } catch {
     return false;
   }
+}
+
+async function getAuthSession(
+  request: Request,
+  env: Env
+): Promise<{ sessionId: string; session: SessionData } | null> {
+  const auth = request.headers.get("Authorization");
+  if (!auth?.startsWith("Bearer ")) return null;
+  const sessionId = auth.slice(7).trim();
+  if (!sessionId) return null;
+  const raw = await env.SESSIONS.get(sessionId);
+  if (!raw) return null;
+  return { sessionId, session: JSON.parse(raw) as SessionData };
+}
+
+async function trackUserDoc(
+  env: Env,
+  userId: string,
+  docId: string,
+  role: "owner" | "shared"
+): Promise<void> {
+  const key = `userdoc:${userId}:${docId}`;
+  const existing = await env.SESSIONS.get(key);
+  if (existing) return; // don't downgrade owner → shared
+  const entry: UserDocEntry = { docId, role, addedAt: Date.now() };
+  await env.SESSIONS.put(key, JSON.stringify(entry));
 }
 
 async function createGoogleSession(
@@ -184,10 +212,62 @@ export default {
         return Response.redirect(finalUrl.toString(), 302);
       }
 
-      // ── Create document ──
+      // ── Create document (requires auth) ──
       if (path === "/create" && request.method === "POST") {
+        const auth = await getAuthSession(request, env);
+        if (!auth) return jsonResponse({ error: "Sign in required" }, 401);
+
         const docId = crypto.randomUUID();
+        const now = Date.now();
+        const meta: DocMeta = {
+          docId,
+          title: "Untitled",
+          createdBy: auth.session.userId,
+          createdByName: auth.session.name,
+          createdAt: now,
+          lastModified: now,
+        };
+        await env.SESSIONS.put(`doc:${docId}`, JSON.stringify(meta));
+        await trackUserDoc(env, auth.session.userId, docId, "owner");
+
         return jsonResponse({ docId, url: `/doc/${docId}` });
+      }
+
+      // ── List user's documents ──
+      if (path === "/my-docs" && request.method === "GET") {
+        const auth = await getAuthSession(request, env);
+        if (!auth) return jsonResponse({ error: "Sign in required" }, 401);
+
+        const list = await env.SESSIONS.list({
+          prefix: `userdoc:${auth.session.userId}:`,
+        });
+
+        const entries = await Promise.all(
+          list.keys.map(async (k) => {
+            const raw = await env.SESSIONS.get(k.name);
+            if (!raw) return null;
+            const entry = JSON.parse(raw) as UserDocEntry;
+            const metaRaw = await env.SESSIONS.get(`doc:${entry.docId}`);
+            const meta = metaRaw ? (JSON.parse(metaRaw) as DocMeta) : null;
+            if (!meta) return null;
+            return {
+              docId: entry.docId,
+              role: entry.role,
+              addedAt: entry.addedAt,
+              title: meta.title,
+              createdBy: meta.createdBy,
+              createdByName: meta.createdByName,
+              createdAt: meta.createdAt,
+              lastModified: meta.lastModified,
+            };
+          })
+        );
+
+        const docs = entries
+          .filter((e): e is NonNullable<typeof e> => e !== null)
+          .sort((a, b) => b.lastModified - a.lastModified);
+
+        return jsonResponse({ docs });
       }
 
       // ── Create guest session ──
@@ -241,10 +321,35 @@ export default {
 
           const session = JSON.parse(raw) as SessionData;
 
+          // Ensure this doc has metadata + user is tracked
+          const metaRaw = await env.SESSIONS.get(`doc:${docId}`);
+          if (!metaRaw) {
+            const now = Date.now();
+            const meta: DocMeta = {
+              docId,
+              title: "Untitled",
+              createdBy: session.userId,
+              createdByName: session.name,
+              createdAt: now,
+              lastModified: now,
+            };
+            await env.SESSIONS.put(`doc:${docId}`, JSON.stringify(meta));
+            await trackUserDoc(env, session.userId, docId, "owner");
+          } else {
+            const meta = JSON.parse(metaRaw) as DocMeta;
+            await trackUserDoc(
+              env,
+              session.userId,
+              docId,
+              meta.createdBy === session.userId ? "owner" : "shared"
+            );
+          }
+
           const doUrl = new URL(request.url);
           doUrl.searchParams.set("userId", session.userId);
           doUrl.searchParams.set("name", session.name);
           doUrl.searchParams.set("color", session.color);
+          doUrl.searchParams.set("docId", docId);
           doUrl.searchParams.delete("session");
 
           const id = env.DOCUMENT_AGENT.idFromName(docId);
